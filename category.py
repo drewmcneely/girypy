@@ -33,3 +33,41 @@ class Monad(Functor):
     # liftM :: 
     @staticmethod
     def liftM(f): return lambda ma: ma.bind(lambda a: f(a).unit())
+
+proj1 = bimap(ident, discard)
+proj2 = compose(proj1, swap)
+
+class Markov(Symmetric, Monoidal):
+    @abstractmethod
+    def copy(self): pass
+    @abstractmethod
+    def discard(self): pass
+
+    def integrate(self, f):
+        return bimap(ident, f)(self.copy())
+    @abstractmethod
+    def disintegrate(): pass
+
+class Category(metaclass=ABCMeta):
+    @abstractmethod
+    def __init__(self, domain, codomain, morphism): pass
+
+    @abstractmethod
+    def compose(f, g): pass
+    def precompose(f, g): return g.compose(f)
+    @abstractmethod
+    def ident(obj): pass
+
+class Bifunctor(Category):
+    @abstractmethod
+    def bimap(f,g): pass
+
+class Associative(Bifunctor):
+    @abstractmethod
+    def associate(f): pass
+    @abstractmethod
+    def disassociate(f): pass
+
+class Monoidal(Associative):
+    @abstractmethod
+    def unit(): pasr
