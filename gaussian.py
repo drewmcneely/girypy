@@ -136,10 +136,48 @@ class Gaussian:
     def proj2(cls, n1, n2): return cls.proj1(n2,n1) @ cls.swap(n1,n2)
 
     # Markov
-    def integrator1(self):
+    def prependor(self):
         nx = self.source
         ny = self.target
         return (self * Gaussian.identity(nx) ) @ Gaussian.copier(nx)
-    def integrator2(self):
+    def appendor(self):
         nx = self.source
         ny = self.target
+        return Gaussian.swap(ny,nx) @ self.prependor
+
+    def recover_from(self, nx):
+        assert (self.source == 0)
+
+        nxy = self.target
+        ny = nxy - nx
+
+        M = self.covariance
+
+        px = Gaussian.proj1(nx, ny) @ self
+        x = px.mean
+        P = px.covariance
+        Pinv = np.linalg.inv(P)
+
+        py = Gaussian.proj2(nx, ny) @ self
+        y = py.mean
+        R = py.covariance
+        Q = M[n:,:n]
+
+
+        F = Q @ Pinv
+        z = y - Q @ Pinv @ x
+        S = R - Q @ Pinv @ Q.T
+
+        return Gaussian(matrix=F, mean=z, covariance=S)
+
+    def lrecover_from(self, ny):
+        nx = self.target - ny
+        spd = Gaussian.swap(ny,nx) @ self
+        return spd.recover_from(ny)
+
+    def invert(self, h):
+        x = h.source
+        y = h.target
+        joint = h.appendor @ self
+        return joint.recover_from(y)
+
