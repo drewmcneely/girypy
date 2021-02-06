@@ -1,73 +1,121 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
-def compose(f, g): return lambda x: f(g(x))
-
-class Functor(metaclass=ABCMeta):
-    @staticmethod
+class Category(ABC):
     @abstractmethod
-    def lift(f): pass
+    def __init__(self, *args, **kwargs): pass
 
-    def push_through(self, f): return self.lift(f)(self)
-
-class Monad(Functor):
-    # join :: P P X -> P X
     @abstractmethod
-    def join(self): pass
+    def compose(self, other): pass
+    def __matmul__(self,other): return self.compose(other)
 
-    # unit :: X -> P X
+    @classmethod
+    @abstractmethod
+    def identity(cls, obj): pass
+
+    @property
+    @abstractmethod
+    def source(self): pass
+    @property
+    @abstractmethod
+    def target(self): pass
+
+class StrictMonoidal(Category):
+    @abstractmethod
+    def bimap(self, other): pass
+    def __and__(self, other): return self.bimap(other)
+
     @staticmethod
     @abstractmethod
     def unit(): pass
 
-    # bind :: P X -> (X -> P Y) -> P Y
-    def bind(self, f): return self.push_through(f).join()
-
-    # revbind :: (X -> P Y) -> (P X -> P Y)
     @staticmethod
-    def revbind(f): return lambda ta: ta.bind(f)
-
-    # kleisli :: (X -> P Y) -> (Y -> P Z) -> (X -> P Z)
+    @abstractmethod
+    def factor1(xy, x): pass
     @staticmethod
-    def kleisli(f, g): return lambda a: f(a).bind(g)
+    @abstractmethod
+    def factor2(xy, y): pass
 
-    # liftM :: 
+class StrictSymmetric(StrictMonoidal):
+    @classmethod
+    @abstractmethod
+    def swapper(cls, obj1, obj2): pass
+    def swapped(self, obj1, obj2):
+        return type(self).swapper(obj1, obj2) @ self
+
     @staticmethod
-    def liftM(f): return lambda ma: ma.bind(lambda a: f(a).unit())
+    @abstractmethod
+    def factor(xy, x): pass
+    def factor1(xy, x): return factor(xy, x)
+    def factor2(xy, x): return factor(xy, x)
 
-proj1 = bimap(ident, discard)
-proj2 = compose(proj1, swap)
 
-class Markov(Symmetric, Monoidal):
+class StrictMarkov(StrictSymmetric):
+    @classmethod
     @abstractmethod
-    def copy(self): pass
-    @abstractmethod
-    def discard(self): pass
+    def copier(cls, obj): pass
+    def copied(self):
+        return type(self).copier(self.target) @ self
 
-    def integrate(self, f):
-        return bimap(ident, f)(self.copy())
+    @classmethod
     @abstractmethod
-    def disintegrate(): pass
+    def discarder(cls, obj): pass
 
-class Category(metaclass=ABCMeta):
-    @abstractmethod
-    def __init__(self, domain, codomain, morphism): pass
+    @classmethod
+    def projector1(cls, obj1, obj2):
+        return cls.identity(obj1) & cls.discarder(obj2)
+    def proj1(self, x):
+        cls = type(self)
+        y = cls.factor(self.target, x)
+        return cls.projector1(x,y) @ self
+    @classmethod
+    def projector2(cls, obj1, obj2):
+        return cls.projector1(obj2, obj1) @ cls.swapper(obj1,obj2)
+    def proj2(self, y):
+        cls = type(self)
+        x = cls.factor(self.target, y)
+        return cls.projector2(x,y) @ self
+
+    def appendor(self):
+        cls = type(self)
+        source = self.source
+        return (cls.identity(source) & self) @ cls.copier(source)
+    def integrate1_through(self, morphism):
+        return morphism.appendor() @ self
+
+    def prependor(self):
+        cls = type(self)
+        l = self.target
+        r = self.source
+        return cls.swapper(r,l) @ self.appendor()
+    def integrate2_through(self, morphism):
+        return morphism.prependor() @ self
+
+    def __mul__(self, other):
+        cls = type(self)
+        unit = cls.unit()
+        if other.source == cls.unit():
+            assert other.target == self.source
+            return other.integrate2_through(self)
+        elif self.source == cls.unit():
+            assert self.target == other.source
+            return self.integrate1_through(other)
+        else: raise ValueError
 
     @abstractmethod
-    def compose(f, g): pass
-    def precompose(f, g): return g.compose(f)
-    @abstractmethod
-    def ident(obj): pass
+    def recovery_from1(self, x): pass
+    def recovery_from2(self, y):
+        xy = self.target
+        x = type(self).factor(xy, y)
+        return self.swapped(x,y).recovery_from1(y)
+    def __truediv__(self, x):
+        return self.recovery_from1(x)
+    def __floordiv__(self, x):
+        return self.recovery_from2(x)
 
-class Bifunctor(Category):
-    @abstractmethod
-    def bimap(f,g): pass
+    def bayes_invert(probability, conditional):
+        return (conditional * probability) / conditional.target
 
-class Associative(Bifunctor):
-    @abstractmethod
-    def associate(f): pass
-    @abstractmethod
-    def disassociate(f): pass
-
-class Monoidal(Associative):
-    @abstractmethod
-    def unit(): pasr
+    def update(self, dynamics, instrument, measurement):
+        prior = dynamics @ self
+        updater = prior.bayes_invert(instrument)
+        return updater @ measurement

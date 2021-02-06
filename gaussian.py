@@ -1,10 +1,10 @@
 import numpy as np
 from scipy.linalg import block_diag
+from category import StrictMarkov
 
-class Gaussian:
+class Gaussian(StrictMarkov):
     def __init__(self, matrix, **kwargs):
         (target, source) = matrix.shape
-        self.__dict__.update(zip(["target","source"] , matrix.shape))
 
         self.matrix = matrix
         allowed_keys = {"mean", "covariance"}
@@ -13,7 +13,7 @@ class Gaussian:
         self.__dict__.update((k,v) for (k,v) in kwargs.items() if k in allowed_keys)
 
         assert (self.mean.shape == (target,))
-        assert (covariance.shape == (target,target))
+        assert (self.covariance.shape == (target,target))
         eigs, evecs = np.linalg.eig(self.covariance)
         assert all([eig >= 0 for eig in eigs])
 
@@ -38,15 +38,16 @@ class Gaussian:
     def terminal_matrix(n): return np.empty((0,n))
     def elemental_matrix(n): return np.empty((n,0))
 
+    def unit(): return 0
     # Creator Methods
     @classmethod
     def certain_state(cls, state):
-        matrix = elemental_matrix(len(state))
+        matrix = Gaussian.elemental_matrix(len(state))
         return cls(matrix=matrix, mean=state)
 
     @classmethod
     def uncertain_state(cls, mean, covariance):
-        matrix = elemental_matrix(len(mean))
+        matrix = Gaussian.elemental_matrix(len(mean))
         return cls(matrix=matrix, mean=mean, covariance=covariance)
 
     @classmethod
@@ -61,15 +62,6 @@ class Gaussian:
     def identity(cls, n): return cls(matrix=np.identity(n))
 
     def compose(self, other):
-        '''
-        (G,y,Q) @ (F,x,P)
-        = (Gm + N(y,Q) <- m) @ (Fn + N(x,P) <- n)
-        = G(Fn + N(x,P)) + N(y,Q)
-        = GFn + G*N(x,P) + N(y,Q)
-        = GFn + N(Gx, GPG^) + N(y,Q)
-        = GFn + N(Gx + y, GPG^ + Q)
-        '''
-
         assert (self.source == other.target)
 
         F = other.matrix
@@ -86,66 +78,39 @@ class Gaussian:
 
         return Gaussian(matrix=H, mean=z, covariance=R)
 
-    def __matmul__(self,other): return compose(self,other)
+    @property
+    def source(self): return self.matrix.shape[1]
+    @property
+    def target(self): return self.matrix.shape[0]
 
-    # Monoidal
+    # StrictMonoidal
     def bimap(self,other):
         matrix = block_diag(self.matrix, other.matrix)
-        mean = np.concatenate(self.mean, other.mean)
+        mean = np.concatenate((self.mean, other.mean))
         covariance = block_diag(self.covariance, other.covariance)
         return Gaussian(matrix=matrix, mean=mean, covariance=covariance)
 
-    def __mul__(self,other): return bimap(self,other)
-
     # Symmetric
     @classmethod
-    def swap(cls, n1, n2):
+    def swapper(cls, n1, n2):
         z21 = np.zeros((n2,n1))
         z12 = np.zeros((n1,n2))
         i1 = np.identity(n1)
         i2 = np.identity(n2)
-        # def block_split(P, n):
-        #     P11 = P[:n,:n]
-        #     P12 = P[:n,n:]
-        #     P21 = P[n:,:n]
-        #     P22 = P[n:,n:]
-        #     return (P11, P12, P21, P22)
-        # def block_swap(P,n):
-        #     P11, P12, P21, P22 = block_split(P,n)
-        #     return np.block([[P22,P21],[P12,P11]])
-        # n = n1 - 1
-        # x = self.mean(:n)
-        # y = self.mean(n:)
-        # return Gaussian(matrix=block_swap(self.matrix),
-        #         mean=np.concatenate((y,x)),
-        #         covariance=block_swap(self.covariance))
-        return cls(matrix=np.block([[z21,i2],[i1,z12]])
+        return cls(matrix=np.block([[z21,i2],[i1,z12]]))
 
-    # Comonoidal
+    @staticmethod
+    def factor(xy, x): return xy - x
+
+    # StrictMarkov
     @classmethod
     def copier(cls, n):
         I = np.identity(n)
         return cls(matrix=np.vstack((I,I)))
     @classmethod
-    def discarder(cls, n): return cls(matrix=terminal_matrix(n))
+    def discarder(cls, n): return cls(matrix=Gaussian.terminal_matrix(n))
 
-    # Semi-Cartesian
-    @classmethod
-    def proj1(cls, n1, n2): return cls.identity(n1) * cls.discarder(n2)
-    @classmethod
-    def proj2(cls, n1, n2): return cls.proj1(n2,n1) @ cls.swap(n1,n2)
-
-    # Markov
-    def prependor(self):
-        nx = self.source
-        ny = self.target
-        return (self * Gaussian.identity(nx) ) @ Gaussian.copier(nx)
-    def appendor(self):
-        nx = self.source
-        ny = self.target
-        return Gaussian.swap(ny,nx) @ self.prependor
-
-    def recover_from(self, nx):
+    def recovery_from1(self, nx):
         assert (self.source == 0)
 
         nxy = self.target
@@ -153,15 +118,15 @@ class Gaussian:
 
         M = self.covariance
 
-        px = Gaussian.proj1(nx, ny) @ self
+        px = self.proj1(nx)
         x = px.mean
         P = px.covariance
         Pinv = np.linalg.inv(P)
 
-        py = Gaussian.proj2(nx, ny) @ self
+        py = self.proj2(ny)
         y = py.mean
         R = py.covariance
-        Q = M[n:,:n]
+        Q = M[ny:,:ny]
 
 
         F = Q @ Pinv
@@ -170,14 +135,21 @@ class Gaussian:
 
         return Gaussian(matrix=F, mean=z, covariance=S)
 
-    def lrecover_from(self, ny):
-        nx = self.target - ny
-        spd = Gaussian.swap(ny,nx) @ self
-        return spd.recover_from(ny)
+if __name__ == "__main__":
+    x0 = np.array([3,2])
+    P0 = np.identity(2)
+    prior = Gaussian.uncertain_state(x0, P0)
 
-    def invert(self, h):
-        x = h.source
-        y = h.target
-        joint = h.appendor @ self
-        return joint.recover_from(y)
+    F = np.array([[1,1],[0,1]])
+    dynamics = Gaussian.linear(F)
 
+    H = np.array([[0,1]])
+    R = np.array([2])
+    w = np.array([0])
+    instrument = Gaussian(matrix=H, mean=w, covariance=R)
+
+    z = np.array([6,4])
+    measurement = Gaussian.certain_state(z)
+
+    posterior = prior.update(dynamics, instrument, measurement)
+    print(posterior)
