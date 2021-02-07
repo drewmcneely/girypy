@@ -126,8 +126,7 @@ class Gaussian(StrictMarkov):
         py = self.proj2(ny)
         y = py.mean
         R = py.covariance
-        Q = M[ny:,:ny]
-
+        Q = M[:ny,ny:]
 
         F = Q @ Pinv
         z = y - Q @ Pinv @ x
@@ -140,16 +139,33 @@ if __name__ == "__main__":
     P0 = np.identity(2)
     prior = Gaussian.uncertain_state(x0, P0)
 
-    F = np.array([[1,1],[0,1]])
-    dynamics = Gaussian.linear(F)
+    F = np.array([[0,1],[1,2]])
+    Q = np.array([[1,0],[0,2]])
+    v = np.zeros(2)
+    dynamics = Gaussian(matrix=F, mean=v, covariance=Q)
 
-    H = np.array([[0,1]])
-    R = np.array([2])
-    w = np.array([0])
+    H = np.array([[1,0]])
+    R = np.array([[1]])
+    w = np.zeros(1)
     instrument = Gaussian(matrix=H, mean=w, covariance=R)
 
-    z = np.array([6,4])
+    z = np.array([3])
     measurement = Gaussian.certain_state(z)
 
     posterior = prior.update(dynamics, instrument, measurement)
+
+    print("Posterior from categorical filter:")
     print(posterior)
+
+    xbar = F@x0
+    Pbar = F@P0@F.T + Q
+
+    ytilde = z - H@xbar
+    S = H@Pbar@H.T + R
+    K = Pbar@H.T@np.linalg.inv(S)
+    
+    xhat = xbar + K@ytilde
+    Phat = Pbar - K@H@Pbar
+
+    print("Posterior from regular Kalman filter:")
+    print(Gaussian.uncertain_state(xhat, Phat))
