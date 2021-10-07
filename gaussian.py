@@ -15,7 +15,8 @@ class Gaussian(StrictMarkov):
         assert (self.mean.shape == (target,))
         assert (self.covariance.shape == (target,target))
         eigs, evecs = np.linalg.eig(self.covariance)
-        assert all([eig >= 0 for eig in eigs])
+        if len(eigs) == 2 and any(eigs < 0): print(eigs)
+        #assert all([eig >= 0 for eig in eigs])
 
     def __str__(self):
         F = str(self.matrix)
@@ -135,37 +136,65 @@ class Gaussian(StrictMarkov):
         return Gaussian(matrix=F, mean=z, covariance=S)
 
 if __name__ == "__main__":
+    A = np.array([[0,1],[-1,-1]])
+    dynamics_model = lambda t, x: A@x
+    t0 = 0
+    tf = 10
+    t_span = (t0, tf)
     x0 = np.array([3,2])
+    dt = 0.5
+    t_eval = np.arange(t0, tf, dt)
+
+    from scipy.integrate import solve_ivp
+    solution = solve_ivp(dynamics_model, t_span, x0, t_eval=t_eval)
+    y = solution.y
+    xs = [y[:,k] for k in range(y.shape[1])]
+    from numpy.random import normal
+
+    H = np.array([[1,0]])
+    std = 0.5
+    ys = [H@x + normal(scale=std) for x in xs]
+    x1s = [x[0] for x in xs]
+
+    #import pdb; pdb.set_trace()
+    #import matplotlib.pyplot as plt
+    #plt.plot(x1s)
+    #plt.show()
+
+
+    from scipy.linalg import expm
+    F = expm(A*dt)
+
     P0 = np.identity(2)
     prior = Gaussian.uncertain_state(x0, P0)
 
-    F = np.array([[0,1],[1,2]])
-    Q = np.array([[1,0],[0,2]])
-    v = np.zeros(2)
-    dynamics = Gaussian(matrix=F, mean=v, covariance=Q)
+    dynamics = Gaussian.linear(F)
 
-    H = np.array([[1,0]])
-    R = np.array([[1]])
+    R = np.array([[std**2]])
     w = np.zeros(1)
     instrument = Gaussian(matrix=H, mean=w, covariance=R)
 
-    z = np.array([3])
-    measurement = Gaussian.certain_state(z)
-
-    posterior = prior.update(dynamics, instrument, measurement)
-
-    print("Posterior from categorical filter:")
-    print(posterior)
-
-    xbar = F@x0
-    Pbar = F@P0@F.T + Q
-
-    ytilde = z - H@xbar
-    S = H@Pbar@H.T + R
-    K = Pbar@H.T@np.linalg.inv(S)
+    measurements = [Gaussian.certain_state(y) for y in ys]
+    estimates = [prior]
+    for meas in measurements:
+        est = estimates[-1]
+        new_est = est.update(dynamics, instrument, meas)
+        estimates += [new_est]
+        #import pdb; pdb.set_trace()
     
-    xhat = xbar + K@ytilde
-    Phat = Pbar - K@H@Pbar
 
-    print("Posterior from regular Kalman filter:")
-    print(Gaussian.uncertain_state(xhat, Phat))
+    #print("Posterior from categorical filter:")
+    #print(posterior)
+
+    #xbar = F@x0
+    #Pbar = F@P0@F.T + Q
+
+    #ytilde = z - H@xbar
+    #S = H@Pbar@H.T + R
+    #K = Pbar@H.T@np.linalg.inv(S)
+    #
+    #xhat = xbar + K@ytilde
+    #Phat = Pbar - K@H@Pbar
+
+    #print("Posterior from regular Kalman filter:")
+    #print(Gaussian.uncertain_state(xhat, Phat))
