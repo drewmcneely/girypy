@@ -15,7 +15,6 @@ class Gaussian(StrictMarkov):
         assert (self.mean.shape == (target,))
         assert (self.covariance.shape == (target,target))
         eigs, evecs = np.linalg.eig(self.covariance)
-        if len(eigs) == 2 and any(eigs < 0): print(eigs)
         #assert all([eig >= 0 for eig in eigs])
 
     def __str__(self):
@@ -113,6 +112,7 @@ class Gaussian(StrictMarkov):
 
     def recovery_from1(self, nx):
         assert (self.source == 0)
+        print("Gaussian Conditional")
 
         nxy = self.target
         ny = nxy - nx
@@ -127,16 +127,39 @@ class Gaussian(StrictMarkov):
         py = self.proj2(ny)
         y = py.mean
         R = py.covariance
-        Q = M[:ny,ny:]
+        Q = M[nx:,:nx]
 
         F = Q @ Pinv
         z = y - Q @ Pinv @ x
         S = R - Q @ Pinv @ Q.T
+        
 
         return Gaussian(matrix=F, mean=z, covariance=S)
 
+def classic_update(prior, dynamics, instrument, measurement):
+    xhat = prior.mean
+    P = prior.covariance
+    F = dynamics.matrix
+    Q = dynamics.covariance
+    H = instrument.matrix
+    R = instrument.covariance
+    z = measurement.mean
+    xbar = F@xhat
+    Pbar = F@P@F.T + Q
+
+    ybar = H@xbar
+    ytilde = z - ybar
+    S = H@Pbar@H.T + R
+    K = Pbar@H.T@np.linalg.inv(S)
+
+    xhat_new = xbar + K@ytilde
+    P_new = Pbar - K@H@Pbar
+
+    return Gaussian.uncertain_state(xhat_new, P_new)
+
 if __name__ == "__main__":
-    A = np.array([[0,1],[-1,-1]])
+    # The following code block sets up a simple continuous dynamics model for simulation
+    A = np.array([[0,1],[-1,-1]]) # Continuous dynamics matrix
     dynamics_model = lambda t, x: A@x
     t0 = 0
     tf = 10
@@ -145,56 +168,42 @@ if __name__ == "__main__":
     dt = 0.5
     t_eval = np.arange(t0, tf, dt)
 
+    # Simulate the system and get a sequence of states
     from scipy.integrate import solve_ivp
     solution = solve_ivp(dynamics_model, t_span, x0, t_eval=t_eval)
     y = solution.y
     xs = [y[:,k] for k in range(y.shape[1])]
-    from numpy.random import normal
 
+    # Simulate a sequence of measurements
+    from numpy.random import normal
     H = np.array([[1,0]])
     std = 0.5
     ys = [H@x + normal(scale=std) for x in xs]
-    x1s = [x[0] for x in xs]
+    ys = ys[1:]
+    measurements = [Gaussian.certain_state(y) for y in ys]
 
-    #import pdb; pdb.set_trace()
-    #import matplotlib.pyplot as plt
-    #plt.plot(x1s)
-    #plt.show()
-
-
+    
+    # Model to be used in the filter
     from scipy.linalg import expm
     F = expm(A*dt)
-
     P0 = np.identity(2)
-    prior = Gaussian.uncertain_state(x0, P0)
-
+    initial_state = Gaussian.uncertain_state(x0, P0)
     dynamics = Gaussian.linear(F)
-
     R = np.array([[std**2]])
     w = np.zeros(1)
     instrument = Gaussian(matrix=H, mean=w, covariance=R)
 
-    measurements = [Gaussian.certain_state(y) for y in ys]
-    estimates = [prior]
+    cat_estimates = [initial_state]
+    clas_estimates = [initial_state]
     for meas in measurements:
-        est = estimates[-1]
-        new_est = est.update(dynamics, instrument, meas)
-        estimates += [new_est]
-        #import pdb; pdb.set_trace()
-    
+        cat_est = cat_estimates[-1]
+        clas_est = clas_estimates[-1]
+        cat_estimates += [cat_est.update(dynamics, instrument, meas)]
+        clas_estimates += [classic_update(clas_est,dynamics, instrument, meas)]
 
-    #print("Posterior from categorical filter:")
-    #print(posterior)
-
-    #xbar = F@x0
-    #Pbar = F@P0@F.T + Q
-
-    #ytilde = z - H@xbar
-    #S = H@Pbar@H.T + R
-    #K = Pbar@H.T@np.linalg.inv(S)
-    #
-    #xhat = xbar + K@ytilde
-    #Phat = Pbar - K@H@Pbar
-
-    #print("Posterior from regular Kalman filter:")
-    #print(Gaussian.uncertain_state(xhat, Phat))
+    for (k,(clas,cat)) in enumerate(zip(cat_estimates, clas_estimates)):
+        print(f"Time: {k}")
+        print("Classical KF")
+        print(clas)
+        print("My KF")
+        print(cat)
