@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.linalg import block_diag
 from category import StrictMarkov
+import csv
 
 class Gaussian(StrictMarkov):
     def __init__(self, matrix, **kwargs):
@@ -193,17 +194,92 @@ if __name__ == "__main__":
     w = np.zeros(1)
     instrument = Gaussian(matrix=H, mean=w, covariance=R)
 
-    cat_estimates = [initial_state]
-    clas_estimates = [initial_state]
-    for meas in measurements:
-        cat_est = cat_estimates[-1]
-        clas_est = clas_estimates[-1]
-        cat_estimates += [cat_est.update(dynamics, instrument, meas)]
-        clas_estimates += [classic_update(clas_est,dynamics, instrument, meas)]
+    posteriors = [initial_state]
+    priors = []
+    predicted_measurements = []
+    states = xs
 
-    for (k,(clas,cat)) in enumerate(zip(cat_estimates, clas_estimates)):
-        print(f"Time: {k}")
-        print("Classical KF")
-        print(clas)
-        print("My KF")
-        print(cat)
+    for meas in measurements:
+        cat_est = posteriors[-1]
+
+        next_prior = dynamics @ cat_est 
+        priors += [next_prior]
+
+        pred_meas = instrument @ next_prior
+        predicted_measurements += [pred_meas]
+
+        posteriors += [cat_est.update(dynamics, instrument, meas)]
+
+    def get_mean_2d(state):
+        mean = state.mean
+        mx = mean[0]
+        my = mean[1]
+        return [mx, my]
+
+    def get_cov_2d(state):
+        cov = state.covariance
+        Pxx = cov[0,0]
+        Pxy = cov[0,1]
+        Pyy = cov[1,1]
+        return [Pxx, Pxy, Pyy]
+
+    def get_mean_1d(state):
+        return [state.mean[0]]
+    def get_cov_1d(state):
+        return [state.covariance[0,0]]
+
+    with open('posterior_means.csv', 'w') as m, open('posterior_covariances.csv', 'w') as p:
+        mhead = ['mx', 'mv']
+        writerm = csv.writer(m)
+        writerm.writerow(mhead)
+
+        phead = ['Pxx', 'Pxv', 'Pvv']
+        writerp = csv.writer(p)
+        writerp.writerow(phead)
+
+        for state in posteriors:
+            writerm.writerow(get_mean_2d(state))
+            writerp.writerow(get_cov_2d(state))
+
+    with open('prior_means.csv', 'w') as m, open('prior_covariances.csv', 'w') as p:
+        mhead = ['mx', 'my']
+        writerm = csv.writer(m)
+        writerm.writerow(mhead)
+
+        phead = ['Pxx', 'Pxv', 'Pvv']
+        writerp = csv.writer(p)
+        writerp.writerow(phead)
+
+        for state in priors:
+            writerm.writerow(get_mean_2d(state))
+            writerp.writerow(get_cov_2d(state))
+
+
+    with open('predicted_measurement_means.csv', 'w') as m, open('predicted_measurement_covariances.csv', 'w') as p:
+        mhead = ['mean']
+        writerm = csv.writer(m)
+        writerm.writerow(mhead)
+
+        phead = ['covariance']
+        writerp = csv.writer(p)
+        writerp.writerow(phead)
+
+        for state in predicted_measurements:
+            writerm.writerow(get_mean_1d(state))
+            writerp.writerow(get_cov_1d(state))
+
+    with open('actual_measurements.csv', 'w') as m:
+        mhead = ['measured_position']
+        writerm = csv.writer(m)
+        writerm.writerow(mhead)
+
+        for meas in measurements:
+            writerm.writerow(get_mean_1d(meas))
+
+    with open('actual_states.csv', 'w') as m:
+        mhead = ['position', 'velocity']
+        writerm = csv.writer(m)
+        writerm.writerow(mhead)
+
+        for state in states:
+            writerm.writerow(list(state))
