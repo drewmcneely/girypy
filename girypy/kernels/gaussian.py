@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.linalg import block_diag
-from category import StrictMarkov
-import csv
+from girypy.strictmarkov import StrictMarkov
 
 class Gaussian(StrictMarkov):
     def __init__(self, matrix, **kwargs):

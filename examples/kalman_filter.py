@@ -1,3 +1,14 @@
+#from girypy.kernels import gaussian as gs
+import csv
+import numpy as np
+import scipy
+
+import sys
+sys.path.append('../girypy')
+
+from girypy.kernels.gaussian import Gaussian
+from girypy.algorithms.algorithms import update, bayes_invert
+
 def classic_update(prior, dynamics, instrument, measurement):
     xhat = prior.mean
     P = prior.covariance
@@ -68,7 +79,7 @@ for meas in measurements:
     pred_meas = instrument @ next_prior
     predicted_measurements += [pred_meas]
 
-    posteriors += [cat_est.update(dynamics, instrument, meas)]
+    posteriors += [update(cat_est, dynamics, instrument, meas)]
 
 def get_mean_2d(state):
     mean = state.mean
