@@ -7,7 +7,7 @@ import sys
 sys.path.append('../girypy')
 
 from girypy.kernels.gaussian import Gaussian
-from girypy.algorithms.algorithms import update, bayes_invert
+from girypy.algorithms.filter import update
 
 def classic_update(prior, dynamics, instrument, measurement):
     xhat = prior.mean
