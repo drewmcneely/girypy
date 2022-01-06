@@ -4,7 +4,8 @@ import numpy as np
 import scipy
 
 import sys
-sys.path.append('../girypy')
+# sys.path.append('..')
+# Uncomment the above line if setup.py has not been run
 
 from girypy.kernels.gaussian import Gaussian
 from girypy.algorithms.filter import update
